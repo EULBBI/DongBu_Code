@@ -1,0 +1,94 @@
+#1)휴대폰 녹음파일을 WAV 형식 변환
+#2)WAV 형식을 CSV로 저장
+
+import os
+import csv
+import math
+import subprocess
+from pydub import AudioSegment
+from google.cloud import speech
+
+# Google Cloud 인증 키 파일 경로 설정
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'C:\PYTHON\JSON_KEY\speechtotext-426706-47933083ceb5.json'
+
+def convert_to_wav(input_path, output_path):
+    ffmpeg_path = "C:\\ffmpeg\\bin\\ffmpeg.exe"
+    command = [ffmpeg_path, '-i', input_path, '-ar', '16000', '-ac', '1', output_path]
+    
+    try:
+        subprocess.run(command, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"파일 변환 실패: {e}")
+        return False
+
+#1분 단위로 파일 분할(1분이 초과하면 음성 인식이 잘 안됨)
+def split_audio(input_path, max_size_bytes=1 * 1024 * 1024):
+    audio = AudioSegment.from_file(input_path, format="wav")
+    chunk_length_ms = math.floor((max_size_bytes / (audio.frame_rate * audio.frame_width * audio.channels)) * 1000)
+    chunks = []
+    for i in range(0, len(audio), chunk_length_ms):
+        chunk = audio[i:i + chunk_length_ms]
+        chunks.append(chunk)
+    return chunks
+
+def transcribe_audio(file_path):
+    client = speech.SpeechClient()
+    
+    with open(file_path, 'rb') as audio_file:
+        content = audio_file.read()
+    
+    audio = speech.RecognitionAudio(content=content)
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=16000,
+        language_code='ko-KR'
+    )
+    
+    operation = client.long_running_recognize(config=config, audio=audio)
+    response = operation.result(timeout=90)
+    
+    transcript = ''
+    for result in response.results:
+        transcript += result.alternatives[0].transcript + ' '
+    
+    return transcript.strip()
+
+def save_transcript_to_csv(filename, transcript, output_folder):
+    csv_filename = os.path.splitext(filename)[0] + '.csv'
+    output_path = os.path.join(output_folder, csv_filename)
+    
+    with open(output_path, mode='w', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow(['Filename', 'Transcript'])
+        writer.writerow([filename, transcript])
+    
+    print(f"CSV 파일 저장: {output_path}")
+
+def main():
+    input_folder = r'C:\PYTHON\Trans_Voice_Input'     #녹음파일 저장 경로
+    output_folder = r'C:\PYTHON\Trans_Voice_Output'   #변환된 CSV 저장 경로
+    
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    
+    for root, dirs, files in os.walk(input_folder):
+        for file in files:
+            if file.lower().endswith(('.m4a', '.3gp')):
+                input_path = os.path.join(root, file).strip()
+                wav_filename = os.path.splitext(file)[0] + '.wav'
+                wav_path = os.path.join(output_folder, wav_filename)
+                
+                if convert_to_wav(input_path, wav_path):
+                    audio_chunks = split_audio(wav_path)
+                    for i, chunk in enumerate(audio_chunks):
+                        chunk_filename = f'{os.path.splitext(file)[0]}_{i+1}.wav'
+                        chunk_path = os.path.join(output_folder, chunk_filename)
+                        chunk.export(chunk_path, format='wav')
+                        transcript = transcribe_audio(chunk_path)
+                        save_transcript_to_csv(chunk_filename, transcript, output_folder)
+                else:
+                    print(f"파일 변환 실패: {input_path}")
+
+if __name__ == "__main__":
+    main()
