@@ -1,0 +1,47 @@
+#여러개의 CSV파일을 병합하여 XLS로 저장
+#홀수 행 간격으로 음영 적용하여 시인성 향상
+
+import pandas as pd
+import os
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
+
+# CSV 파일이 있는 각 폴더 경로
+folders = [r'C:\PYTHON\이상욱_CSV', r'C:\PYTHON\이성균_CSV', r'C:\PYTHON\차정현_CSV'] #3개의 폴더에 나누어져 CSV로 저장된 경로
+output_folder = r'C:\PYTHON'                                                        #병합된 XLS 파일이 저장될 경로
+
+for folder in folders:
+    folder_name = os.path.basename(folder)
+    output_file = os.path.join(output_folder, f'{folder_name}_병합.xlsx')
+    
+    # 모든 CSV 파일을 읽어서 데이터프레임으로 변환
+    dfs = []
+    for root, dirs, files in os.walk(folder):
+        for file in files:
+            if file.lower().endswith('.csv'):
+                csv_path = os.path.join(root, file)
+                df = pd.read_csv(csv_path, encoding='utf-8-sig')
+                df['Filename'] = file  # 파일명 열 추가
+                df['Folder'] = folder_name  # 폴더명 열 추가
+                dfs.append(df)
+
+    # 모든 데이터프레임을 하나로 합치기
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    # 병합된 데이터프레임을 하나의 Excel 파일로 저장
+    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+        combined_df.to_excel(writer, index=False, sheet_name='Sheet1')
+
+        # 시트 선택
+        sheet = writer.sheets['Sheet1']
+
+        # 음영 스타일 정의
+        fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+
+        # 1줄 간격으로 음영 추가
+        for row in range(2, len(combined_df) + 2):
+            if row % 2 == 0:
+                for col in range(1, len(combined_df.columns) + 3):  # 'Filename' 및 'Folder' 열 포함
+                    sheet.cell(row=row, column=col).fill = fill
+
+    print(f"병합된 Excel 파일이 {output_file}에 저장되었습니다.")
